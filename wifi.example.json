@@ -1,0 +1,6 @@
+{
+  "networks": [
+    { "ssid": "MyWiFi", "password": "MyPassword" }
+  ],
+  "last_ssid": "MyWiFi"
+}
