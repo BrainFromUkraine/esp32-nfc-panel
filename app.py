@@ -33,12 +33,12 @@ DEBUG_ERRORS = True
 
 ENV_FILE = ".env"
 
-TG_ENABLED = encrypt.get_env_value(ENV_FILE, "TG_ENABLED")
+TG_ENABLED = bool(encrypt.get_env_value(ENV_FILE, "TG_ENABLED"))
 TG_BOT_TOKEN = encrypt.get_env_value(ENV_FILE, "TG_BOT_TOKEN")
-TG_ADMIN_CHAT_ID = encrypt.get_env_value(ENV_FILE, "TG_ADMIN_CHAT_ID")
+TG_ADMIN_CHAT_ID = int(encrypt.get_env_value(ENV_FILE, "TG_ADMIN_CHAT_ID"))
 TG_DEVICE_NAME = encrypt.get_env_value(ENV_FILE, "TG_DEVICE_NAME")
-TG_POLL_EVERY_MS = encrypt.get_env_value(ENV_FILE, "TG_POLL_EVERY_MS")
-TG_NOTIFY_ON_TAP = encrypt.get_env_value(ENV_FILE, "TG_NOTIFY_ON_TAP")
+TG_POLL_EVERY_MS = int(encrypt.get_env_value(ENV_FILE, "TG_POLL_EVERY_MS"))
+TG_NOTIFY_ON_TAP = bool(encrypt.get_env_value(ENV_FILE, "TG_NOTIFY_ON_TAP"))
 
 # ✅ Freenove BOOT button is GPIO0
 BTN_PIN = 0
