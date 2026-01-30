@@ -8,6 +8,7 @@ import wifi_prov
 import neopixel
 from machine import Pin, I2C
 from pn532 import PN532_I2C
+import encrypt
 
 # -----------------------
 # SETTINGS
@@ -23,15 +24,25 @@ LED_PIN = 48
 
 DEBUG_ERRORS = True
 
+
+
+
 # -----------------------
 # TELEGRAM (ESP32 автономно)
 # -----------------------
-TG_ENABLED = True
-TG_BOT_TOKEN = "8516792297:AAG6CYyx34iY67keiSWDEKcNXggag3-Sxms"
-TG_ADMIN_CHAT_ID = 432530900
-TG_DEVICE_NAME = "ESP32-NFC-1"
-TG_POLL_EVERY_MS = 2500
-TG_NOTIFY_ON_TAP = True
+
+CONFIG_FILE = "config.json"
+
+
+encrypt.encrypt_existing_file(CONFIG_FILE)
+settings = encrypt.load_config(CONFIG_FILE)
+
+TG_ENABLED = settings.get("TG_ENABLED")
+TG_BOT_TOKEN = settings.get("TG_BOT_TOKEN")
+TG_ADMIN_CHAT_ID = settings.get("TG_ADMIN_CHAT_ID")
+TG_DEVICE_NAME = settings.get("TG_DEVICE_NAME")
+TG_POLL_EVERY_MS = settings.get("TG_POLL_EVERY_MS")
+TG_NOTIFY_ON_TAP = settings.get("TG_NOTIFY_ON_TAP")
 
 # ✅ Freenove BOOT button is GPIO0
 BTN_PIN = 0
