@@ -8,7 +8,7 @@ import os
 ENV_FILE = "variables.env"
 ENV_VAR_NAME = "secret_key"
 
-def _get_key():
+def _get_secret_key():
     """
     Function for search secret_key in file variables.env.
     """
@@ -30,6 +30,28 @@ def _get_key():
     print(f"[Error]: key {ENV_VAR_NAME} does not founded!")
     return None
 
+def get_env_value(in_file, in_key):
+    """
+    Function for search secret_key in file variables.env.
+    """
+    try:
+        with open(in_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                # Pass comments
+                if not line or line.startswith("#"):
+                    continue
+                
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    if key.strip() == in_key:
+                        return value.strip().strip('"').strip("'")
+    except OSError:
+        print(f"[Error]: file {in_file} does not founded!")
+    
+    print(f"[Error]: key {in_key} does not founded!")
+    return None
+
 def _xor_cipher(data_bytes, key_str):
     """XOR encrypting/decrypting"""
     if not key_str:
@@ -46,7 +68,7 @@ def _xor_cipher(data_bytes, key_str):
 
 def save_config(data_dict, config_flie):
     """Save current config in ecrypted version"""
-    key = _get_key()
+    key = _get_secret_key()
     if not key:
         return False
 
@@ -65,7 +87,7 @@ def save_config(data_dict, config_flie):
 
 def load_config(config_flie):
     """Load encrypted file and decrypt him"""
-    key = _get_key()
+    key = _get_secret_key()
     if not key:
         return None
 
