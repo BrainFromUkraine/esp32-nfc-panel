@@ -30,8 +30,12 @@ DEBUG_ERRORS = True
 # -----------------------
 # TELEGRAM (ESP32 автономно)
 # -----------------------
-encrypt.encrypt_existing_file()
-settings = encrypt.load_config()
+
+CONFIG_FILE = "config.json"
+
+
+encrypt.encrypt_existing_file(CONFIG_FILE)
+settings = encrypt.load_config(CONFIG_FILE)
 
 TG_ENABLED = settings.get("TG_ENABLED")
 TG_BOT_TOKEN = settings.get("TG_BOT_TOKEN")

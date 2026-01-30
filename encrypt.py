@@ -6,7 +6,6 @@ import os
     Зміни назву на свій CONFIG_FILE
 '''
 ENV_FILE = "variables.env"
-CONFIG_FILE = "config.json"
 ENV_VAR_NAME = "secret_key"
 
 def _get_key():
@@ -45,7 +44,7 @@ def _xor_cipher(data_bytes, key_str):
         
     return result
 
-def save_config(data_dict):
+def save_config(data_dict, config_flie):
     """Save current config in ecrypted version"""
     key = _get_key()
     if not key:
@@ -55,23 +54,23 @@ def save_config(data_dict):
         json_str = ujson.dumps(data_dict)
         encrypted_data = _xor_cipher(json_str.encode('utf-8'), key)
         
-        with open(CONFIG_FILE, "wb") as f:
+        with open(config_flie, "wb") as f:
             f.write(encrypted_data)
             
-        print(f"[OK] Saved and encrypted {CONFIG_FILE}")
+        print(f"[OK] Saved and encrypted {config_flie}")
         return True
     except Exception as e:
         print(f"[ERROR] Can't save config: {e}")
         return False
 
-def load_config():
+def load_config(config_flie):
     """Load encrypted file and decrypt him"""
     key = _get_key()
     if not key:
         return None
 
     try:
-        with open(CONFIG_FILE, "rb") as f:
+        with open(config_flie, "rb") as f:
             file_data = f.read()
         try:
             return ujson.loads(file_data)
@@ -84,19 +83,19 @@ def load_config():
         return ujson.loads(json_str)
 
     except OSError:
-        print(f"[INFO] File {CONFIG_FILE} still exist.")
+        print(f"[INFO] File {config_flie} still exist.")
         return None
     except Exception as e:
         print(f"[ERROR] Reading/encrypting error: {e}")
         return None
 
-def encrypt_existing_file():
+def encrypt_existing_file(config_flie):
     """
     Utillity to encrypt existing non-crypted config.json file
     """
     print("encrypt_existing_file() begin")
     try:
-        with open(CONFIG_FILE, "r") as f:
+        with open(config_flie, "r") as f:
             data = ujson.load(f)
         if save_config(data):
             print("File saved in encrypted fromat")
