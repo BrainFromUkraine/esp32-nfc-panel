@@ -31,18 +31,14 @@ DEBUG_ERRORS = True
 # TELEGRAM (ESP32 автономно)
 # -----------------------
 
-CONFIG_FILE = "config.json"
+ENV_FILE = ".env"
 
-
-encrypt.encrypt_existing_file(CONFIG_FILE)
-settings = encrypt.load_config(CONFIG_FILE)
-
-TG_ENABLED = settings.get("TG_ENABLED")
-TG_BOT_TOKEN = settings.get("TG_BOT_TOKEN")
-TG_ADMIN_CHAT_ID = settings.get("TG_ADMIN_CHAT_ID")
-TG_DEVICE_NAME = settings.get("TG_DEVICE_NAME")
-TG_POLL_EVERY_MS = settings.get("TG_POLL_EVERY_MS")
-TG_NOTIFY_ON_TAP = settings.get("TG_NOTIFY_ON_TAP")
+TG_ENABLED = bool(encrypt.get_env_value(ENV_FILE, "TG_ENABLED"))
+TG_BOT_TOKEN = encrypt.get_env_value(ENV_FILE, "TG_BOT_TOKEN")
+TG_ADMIN_CHAT_ID = int(encrypt.get_env_value(ENV_FILE, "TG_ADMIN_CHAT_ID"))
+TG_DEVICE_NAME = encrypt.get_env_value(ENV_FILE, "TG_DEVICE_NAME")
+TG_POLL_EVERY_MS = int(encrypt.get_env_value(ENV_FILE, "TG_POLL_EVERY_MS"))
+TG_NOTIFY_ON_TAP = bool(encrypt.get_env_value(ENV_FILE, "TG_NOTIFY_ON_TAP"))
 
 # ✅ Freenove BOOT button is GPIO0
 BTN_PIN = 0
