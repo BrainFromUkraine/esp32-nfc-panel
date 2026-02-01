@@ -8,3 +8,13 @@ TG_POLL_EVERY_MS = 2500
 TG_NOTIFY_ON_TAP = True
 
 AP_PASS = "12345678"
+
+# HTTP Basic Auth for Web UI (optional)
+# Add these to your .env file to enable authentication:
+# UI_AUTH_ENABLED=True
+# UI_USER=admin
+# UI_PASS=yourpassword
+# 
+# When enabled, browser will prompt for username/password before loading UI.
+# Protects: GET /, GET /events, POST /api/uids/list
+# Write endpoints remain protected by ADMIN_TOKEN as before.

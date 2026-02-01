@@ -12,6 +12,185 @@ def html_escape(s):
     return s
 
 
+def build_login_html():
+    """Build a custom login page"""
+    html = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Login - ESP32 NFC</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+    .login-card {
+      background: rgba(255,255,255,0.95);
+      border-radius: 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      padding: 40px 32px;
+      max-width: 400px;
+      width: 100%;
+      backdrop-filter: blur(10px);
+    }
+    .logo-area {
+      text-align:center;
+      margin-bottom:32px;
+    }
+    .logo {
+      width:80px;
+      height:80px;
+      margin:0 auto 16px;
+      border-radius:20px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      box-shadow: 0 8px 24px rgba(102,126,234,0.4);
+    }
+    h1 {
+      margin:0 0 8px;
+      font-size:24px;
+      color:#1a202c;
+    }
+    .subtitle {
+      color:#718096;
+      font-size:14px;
+    }
+    .form-group {
+      margin-bottom:20px;
+    }
+    label {
+      display:block;
+      margin-bottom:8px;
+      color:#4a5568;
+      font-size:14px;
+      font-weight:600;
+    }
+    input {
+      width:100%;
+      padding:14px 16px;
+      border-radius:12px;
+      border:2px solid #e2e8f0;
+      background:#fff;
+      font-size:15px;
+      transition: all 0.2s;
+      outline:none;
+    }
+    input:focus {
+      border-color:#667eea;
+      box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+    }
+    button {
+      width:100%;
+      padding:14px 16px;
+      border-radius:12px;
+      border:none;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color:#fff;
+      font-size:16px;
+      font-weight:700;
+      cursor:pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-top:8px;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(102,126,234,0.4);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    .error {
+      background:#fee;
+      border:1px solid #fcc;
+      color:#c33;
+      padding:12px;
+      border-radius:8px;
+      margin-bottom:16px;
+      font-size:14px;
+      display:none;
+    }
+    .error.show {
+      display:block;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="logo-area">
+      <div class="logo"></div>
+      <h1>ESP32 NFC Panel</h1>
+      <div class="subtitle">Please sign in to continue</div>
+    </div>
+    
+    <div id="error" class="error"></div>
+    
+    <form id="loginForm" onsubmit="return handleLogin(event)">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required autocomplete="username" autofocus/>
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password"/>
+      </div>
+      
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+
+  <script>
+    function showError(msg){
+      const el = document.getElementById('error');
+      el.textContent = msg;
+      el.classList.add('show');
+    }
+    
+    function handleLogin(e){
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      
+      fetch('/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: username, password: password})
+      })
+      .then(r => {
+        if(r.redirected || r.status === 302){
+          window.location.href = '/';
+          return null;
+        }
+        return r.json();
+      })
+      .then(data => {
+        if(data && !data.ok){
+          showError(data.msg || 'Invalid credentials');
+        } else if(!data){
+          // Redirect happened
+          window.location.href = '/';
+        }
+      })
+      .catch(err => {
+        showError('Login failed. Please try again.');
+      });
+      
+      return false;
+    }
+  </script>
+</body>
+</html>
+"""
+    return html
+
+
 def build_index_html(last_fw, last_uid, last_access, last_name, cards):
     # cards: [{"uid":"15 D6 ...", "name":"..."}, ...]
     # --- UPDATED: render actions (edit/delete) but keep original UI intact ---
@@ -369,13 +548,16 @@ def build_index_html(last_fw, last_uid, last_access, last_name, cards):
       </div>
     </div>
 
-    <div class="themeBox">
-      <span class="themeLabel">Theme</span>
-      <select id="themeSel" onchange="setTheme(this.value)">
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="blue">Dark Blue</option>
-      </select>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="themeBox">
+        <span class="themeLabel">Theme</span>
+        <select id="themeSel" onchange="setTheme(this.value)">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="blue">Dark Blue</option>
+        </select>
+      </div>
+      <button onclick="logout()" title="Logout" style="padding:10px 16px;">Logout</button>
     </div>
   </div>
 
@@ -407,6 +589,8 @@ def build_index_html(last_fw, last_uid, last_access, last_name, cards):
 
       <div class="actions">
         <div>
+          <input id="token_in" type="password" placeholder="Admin Token" autocomplete="off"/>
+          <div style="height:8px;"></div>
           <input id="uid_in" placeholder="UID: напр 15 D6 14 06 або 15:D6:14:06" autocomplete="off"/>
           <div style="height:8px;"></div>
           <input id="name_in" placeholder="Name: напр Оля / Склад / Майстер-ключ" autocomplete="off"/>
@@ -454,11 +638,23 @@ def build_index_html(last_fw, last_uid, last_access, last_name, cards):
 
 <script>
   function api(path, data){
+    const token = (document.getElementById('token_in')?.value || '').trim();
+    const headers = {"Content-Type":"application/json"};
+    if(token) headers["X-Admin-Token"] = token;
+    
+    const body = data || {};
+    if(token) body.token = token;
+    
     return fetch(path, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(data||{})
-    }).then(r=>r.json());
+      headers: headers,
+      body:JSON.stringify(body)
+    }).then(r=>r.json()).then(r=>{
+      if(!r.ok && r.msg && r.msg.toLowerCase().includes('unauthorized')){
+        toast('AUTH REQUIRED', 'Please enter admin token', 'bad');
+      }
+      return r;
+    });
   }
 
   // Toast
@@ -593,6 +789,23 @@ def build_index_html(last_fw, last_uid, last_access, last_name, cards):
     setTheme(t);
   })();
 
+  // Token persistence
+  (function(){
+    const tokenInput = document.getElementById('token_in');
+    if(tokenInput){
+      try{
+        const saved = localStorage.getItem('esp_admin_token');
+        if(saved) tokenInput.value = saved;
+      }catch(e){}
+      
+      tokenInput.addEventListener('input', function(){
+        try{
+          localStorage.setItem('esp_admin_token', this.value);
+        }catch(e){}
+      });
+    }
+  })();
+
   // History (client-side buffer)
   const HISTORY_MAX = 20;
   let hist = [];
@@ -655,6 +868,11 @@ def build_index_html(last_fw, last_uid, last_access, last_name, cards):
     else pill.classList.add('pill-neutral');
 
     txt.innerText = access || '';
+  }
+
+  // Logout
+  function logout(){
+    window.location.href = '/logout';
   }
 
   // SSE

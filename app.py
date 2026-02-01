@@ -40,6 +40,13 @@ TG_DEVICE_NAME = encrypt.get_env_value(ENV_FILE, "TG_DEVICE_NAME")
 TG_POLL_EVERY_MS = int(encrypt.get_env_value(ENV_FILE, "TG_POLL_EVERY_MS"))
 TG_NOTIFY_ON_TAP = bool(encrypt.get_env_value(ENV_FILE, "TG_NOTIFY_ON_TAP"))
 
+ADMIN_TOKEN = encrypt.get_env_value(ENV_FILE, "ADMIN_TOKEN") or ""
+
+# UI Basic Auth
+UI_AUTH_ENABLED = bool(encrypt.get_env_value(ENV_FILE, "UI_AUTH_ENABLED"))
+UI_USER = encrypt.get_env_value(ENV_FILE, "UI_USER") or ""
+UI_PASS = encrypt.get_env_value(ENV_FILE, "UI_PASS") or ""
+
 # ✅ Freenove BOOT button is GPIO0
 BTN_PIN = 0
 BTN_ACTIVE_LOW = True
@@ -380,6 +387,120 @@ def uids_clear_all():
 
 
 # -----------------------
+# SESSION MANAGEMENT
+# -----------------------
+SESSIONS = {}  # {"session_id": timestamp_ms}
+SESSION_TIMEOUT_MS = 3600000  # 1 hour
+
+def _generate_session_id():
+    """Generate a random session ID using MicroPython-compatible method"""
+    # MicroPython allows getrandbits() only up to 32 bits
+    try:
+        import urandom
+        r1 = urandom.getrandbits(32)
+        r2 = urandom.getrandbits(32)
+        r3 = urandom.getrandbits(32)
+        r4 = urandom.getrandbits(32)
+        # Generate 128-bit session ID (32 hex chars)
+        return "{:08x}{:08x}{:08x}{:08x}".format(r1, r2, r3, r4)
+    except:
+        # Fallback: use timestamp-based session ID
+        return "sess-{}".format(now_ms())
+
+def _parse_cookies(headers):
+    """Parse cookies from headers into a dict"""
+    cookie_header = headers.get("cookie", "")
+    cookies = {}
+    if cookie_header:
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                cookies[k.strip()] = v.strip()
+    return cookies
+
+def _check_session(headers):
+    """Check if request has valid session cookie"""
+    if not UI_AUTH_ENABLED or not UI_USER or not UI_PASS:
+        return True  # Auth disabled
+    
+    cookies = _parse_cookies(headers)
+    sess_id = cookies.get("sess", "")
+    
+    if not sess_id or sess_id not in SESSIONS:
+        return False
+    
+    # Check session timeout
+    now = now_ms()
+    if ms_diff(now, SESSIONS[sess_id]) > SESSION_TIMEOUT_MS:
+        try:
+            del SESSIONS[sess_id]
+        except:
+            pass
+        return False
+    
+    # Update session timestamp
+    SESSIONS[sess_id] = now
+    return True
+
+def _create_session():
+    """Create a new session and return session ID"""
+    sess_id = _generate_session_id()
+    SESSIONS[sess_id] = now_ms()
+    return sess_id
+
+def _destroy_session(headers):
+    """Destroy session from cookie"""
+    cookies = _parse_cookies(headers)
+    sess_id = cookies.get("sess", "")
+    if sess_id and sess_id in SESSIONS:
+        try:
+            del SESSIONS[sess_id]
+        except:
+            pass
+
+def _redirect(cl, location):
+    """Send HTTP redirect response"""
+    try:
+        hdr = (
+            "HTTP/1.1 302 Found\r\n"
+            "Location: {}\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n\r\n"
+        ).format(location)
+        cl.send(hdr.encode())
+    except:
+        pass
+
+def _set_cookie_redirect(cl, location, sess_id):
+    """Send redirect with Set-Cookie header"""
+    try:
+        hdr = (
+            "HTTP/1.1 302 Found\r\n"
+            "Location: {}\r\n"
+            "Set-Cookie: sess={}; Path=/; HttpOnly; Max-Age=3600\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n\r\n"
+        ).format(location, sess_id)
+        cl.send(hdr.encode())
+    except:
+        pass
+
+def _clear_cookie_redirect(cl, location):
+    """Send redirect with cookie deletion"""
+    try:
+        hdr = (
+            "HTTP/1.1 302 Found\r\n"
+            "Location: {}\r\n"
+            "Set-Cookie: sess=; Path=/; HttpOnly; Max-Age=0\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n\r\n"
+        ).format(location)
+        cl.send(hdr.encode())
+    except:
+        pass
+
+# -----------------------
 # HTTP helpers
 # -----------------------
 def _read_http_request(cl):
@@ -469,6 +590,78 @@ def _sse_event(event_id, fw, uid_hex, access, uids=None, ok=None, msg=None, src=
     if msg is not None:
         payload["msg"] = msg
     return "event: update\ndata: {}\n\n".format(ujson.dumps(payload))
+
+
+def _check_admin_token(headers, body):
+    """
+    Check for admin token in:
+    1. Authorization header: "Bearer <token>"
+    2. X-Admin-Token header: "<token>"
+    3. JSON body: {"token": "<token>"}
+    Returns True if valid, False otherwise.
+    """
+    if not ADMIN_TOKEN:
+        return True  # No token configured = no auth required
+    
+    # Check Authorization header
+    auth = headers.get("authorization", "")
+    if auth.startswith("Bearer ") and auth[7:] == ADMIN_TOKEN:
+        return True
+    
+    # Check X-Admin-Token header
+    if headers.get("x-admin-token", "") == ADMIN_TOKEN:
+        return True
+    
+    # Check JSON body
+    try:
+        if body:
+            data = ujson.loads(body.decode() if isinstance(body, bytes) else body)
+            if data.get("token") == ADMIN_TOKEN:
+                return True
+    except:
+        pass
+    
+    return False
+
+
+def _check_basic_auth(headers):
+    """
+    Check HTTP Basic Auth credentials.
+    Returns True if auth is disabled or credentials are valid, False otherwise.
+    """
+    if not UI_AUTH_ENABLED or not UI_USER or not UI_PASS:
+        return True  # Auth disabled or not configured
+    
+    auth = headers.get("authorization", "")
+    if not auth.startswith("Basic "):
+        return False
+    
+    try:
+        import ubinascii
+        encoded = auth[6:]  # Remove "Basic " prefix
+        decoded = ubinascii.a2b_base64(encoded).decode()
+        username, password = decoded.split(":", 1)
+        return username == UI_USER and password == UI_PASS
+    except:
+        return False
+
+
+def _unauth(cl):
+    """
+    Send 401 Unauthorized response with WWW-Authenticate header.
+    """
+    try:
+        hdr = (
+            "HTTP/1.1 401 Unauthorized\r\n"
+            "WWW-Authenticate: Basic realm=\"ESP32 NFC Panel\"\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n"
+            "Content-Length: 12\r\n"
+            "Connection: close\r\n\r\n"
+            "Unauthorized"
+        )
+        cl.send(hdr.encode())
+    except:
+        pass
 
 
 # -----------------------
@@ -750,139 +943,244 @@ def run():
                     else:
                         method, path, headers, body = req
 
-                        if method == "GET" and (path == "/" or path.startswith("/?")):
+                        # GET /login - Show login page
+                        if method == "GET" and path == "/login":
                             _http_send(
                                 cl,
                                 status="200 OK",
                                 ctype="text/html; charset=utf-8",
-                                body=ui_html.build_index_html(
-                                    LAST_FW,
-                                    LAST_UID_HEX,
-                                    LAST_ACCESS,
-                                    LAST_NAME,
-                                    uids_list_cards()
-                                )
+                                body=ui_html.build_login_html()
                             )
                             try:
                                 cl.close()
                             except:
                                 pass
 
-                        elif method == "GET" and path.startswith("/events"):
+                        # POST /login - Authenticate and create session
+                        elif method == "POST" and path == "/login":
                             try:
-                                cl.send(_sse_headers().encode())
-                                cl.send(_sse_event(
-                                    EVENT_ID, LAST_FW, LAST_UID_HEX, LAST_ACCESS,
-                                    uids_list_hex(), src="init",
-                                    cards=uids_list_cards(), name=LAST_NAME
-                                ).encode())
+                                data = ujson.loads(body.decode() if body else "{}")
+                                username = data.get("username", "")
+                                password = data.get("password", "")
+                                
+                                if username == UI_USER and password == UI_PASS:
+                                    sess_id = _create_session()
+                                    _set_cookie_redirect(cl, "/", sess_id)
+                                    log("AUTH", "Login successful for user:", username)
+                                else:
+                                    _json_response(cl, {"ok": False, "msg": "Invalid credentials"}, status="401 Unauthorized")
+                                    log("AUTH", "Login failed for user:", username)
+                            except Exception as e:
+                                _json_response(cl, {"ok": False, "msg": "Login error"}, status="400 Bad Request")
+                                if DEBUG_ERRORS:
+                                    log("AUTH", "Login error:", e)
+                            try:
+                                cl.close()
+                            except:
+                                pass
+
+                        # GET /logout - Destroy session and redirect to login
+                        elif method == "GET" and path == "/logout":
+                            _destroy_session(headers)
+                            _clear_cookie_redirect(cl, "/login")
+                            log("AUTH", "Logout")
+                            try:
+                                cl.close()
+                            except:
+                                pass
+
+                        # GET / - Main dashboard (protected)
+                        elif method == "GET" and (path == "/" or path.startswith("/?")):
+                            if not _check_session(headers):
+                                _redirect(cl, "/login")
                                 try:
-                                    if sse_client:
-                                        sse_client.close()
+                                    cl.close()
                                 except:
                                     pass
-                                sse_client = cl
-                                log("SSE", "client connected")
-                            except:
+                            else:
+                                _http_send(
+                                    cl,
+                                    status="200 OK",
+                                    ctype="text/html; charset=utf-8",
+                                    body=ui_html.build_index_html(
+                                        LAST_FW,
+                                        LAST_UID_HEX,
+                                        LAST_ACCESS,
+                                        LAST_NAME,
+                                        uids_list_cards()
+                                    )
+                                )
                                 try:
                                     cl.close()
                                 except:
                                     pass
 
+                        # GET /events - SSE stream (protected)
+                        elif method == "GET" and path.startswith("/events"):
+                            if not _check_session(headers):
+                                _http_send(cl, status="401 Unauthorized", body="Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                try:
+                                    cl.send(_sse_headers().encode())
+                                    cl.send(_sse_event(
+                                        EVENT_ID, LAST_FW, LAST_UID_HEX, LAST_ACCESS,
+                                        uids_list_hex(), src="init",
+                                        cards=uids_list_cards(), name=LAST_NAME
+                                    ).encode())
+                                    try:
+                                        if sse_client:
+                                            sse_client.close()
+                                    except:
+                                        pass
+                                    sse_client = cl
+                                    log("SSE", "client connected")
+                                except:
+                                    try:
+                                        cl.close()
+                                    except:
+                                        pass
+
+                        # POST /api/uids/list (protected)
                         elif method == "POST" and path == "/api/uids/list":
-                            _json_response(cl, {"ok": True, "cards": uids_list_cards()})
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                            if not _check_session(headers):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                _json_response(cl, {"ok": True, "cards": uids_list_cards()})
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         elif method == "POST" and path == "/api/uids/add_last":
-                            if not LAST_UID_HEX:
-                                ok = False
-                                msg = "No LAST UID (tap a card first)"
+                            if not _check_admin_token(headers, body):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized: admin token required"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
                             else:
-                                ok, msg = uids_add(LAST_UID_HEX)
+                                if not LAST_UID_HEX:
+                                    ok = False
+                                    msg = "No LAST UID (tap a card first)"
+                                else:
+                                    ok, msg = uids_add(LAST_UID_HEX)
 
-                            if ok and led is not None:
-                                blink(led, times=2, on_ms=90, off_ms=60, color=(60, 35, 0))
+                                if ok and led is not None:
+                                    blink(led, times=2, on_ms=90, off_ms=60, color=(60, 35, 0))
 
-                            _json_response(cl, {
-                                "ok": bool(ok),
-                                "msg": msg,
-                                "count": len(ALLOWED_UIDS),
-                                "cards": uids_list_cards()
-                            })
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                                _json_response(cl, {
+                                    "ok": bool(ok),
+                                    "msg": msg,
+                                    "count": len(ALLOWED_UIDS),
+                                    "cards": uids_list_cards()
+                                })
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         elif method == "POST" and path == "/api/uids/add":
-                            try:
-                                j = ujson.loads(body.decode() if body else "{}")
-                            except:
-                                j = {}
-                            ok, msg = uids_add(j.get("uid_hex", ""), j.get("name", ""))
+                            if not _check_admin_token(headers, body):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized: admin token required"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                try:
+                                    j = ujson.loads(body.decode() if body else "{}")
+                                except:
+                                    j = {}
+                                ok, msg = uids_add(j.get("uid_hex", ""), j.get("name", ""))
 
-                            _json_response(cl, {
-                                "ok": bool(ok),
-                                "msg": msg,
-                                "count": len(ALLOWED_UIDS),
-                                "cards": uids_list_cards()
-                            })
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                                _json_response(cl, {
+                                    "ok": bool(ok),
+                                    "msg": msg,
+                                    "count": len(ALLOWED_UIDS),
+                                    "cards": uids_list_cards()
+                                })
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         elif method == "POST" and path == "/api/uids/remove":
-                            try:
-                                j = ujson.loads(body.decode() if body else "{}")
-                            except:
-                                j = {}
-                            ok, msg = uids_remove(j.get("uid_hex", ""))
+                            if not _check_admin_token(headers, body):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized: admin token required"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                try:
+                                    j = ujson.loads(body.decode() if body else "{}")
+                                except:
+                                    j = {}
+                                ok, msg = uids_remove(j.get("uid_hex", ""))
 
-                            _json_response(cl, {
-                                "ok": bool(ok),
-                                "msg": msg,
-                                "count": len(ALLOWED_UIDS),
-                                "cards": uids_list_cards()
-                            })
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                                _json_response(cl, {
+                                    "ok": bool(ok),
+                                    "msg": msg,
+                                    "count": len(ALLOWED_UIDS),
+                                    "cards": uids_list_cards()
+                                })
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         elif method == "POST" and path == "/api/uids/set_name":
-                            try:
-                                j = ujson.loads(body.decode() if body else "{}")
-                            except:
-                                j = {}
-                            ok, msg = uids_set_name(j.get("uid_hex", ""), j.get("name", ""))
+                            if not _check_admin_token(headers, body):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized: admin token required"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                try:
+                                    j = ujson.loads(body.decode() if body else "{}")
+                                except:
+                                    j = {}
+                                ok, msg = uids_set_name(j.get("uid_hex", ""), j.get("name", ""))
 
-                            _json_response(cl, {
-                                "ok": bool(ok),
-                                "msg": msg,
-                                "count": len(ALLOWED_UIDS),
-                                "cards": uids_list_cards()
-                            })
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                                _json_response(cl, {
+                                    "ok": bool(ok),
+                                    "msg": msg,
+                                    "count": len(ALLOWED_UIDS),
+                                    "cards": uids_list_cards()
+                                })
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         elif method == "POST" and path == "/api/uids/clear":
-                            ok = uids_clear_all()
-                            _json_response(cl, {
-                                "ok": bool(ok),
-                                "count": len(ALLOWED_UIDS),
-                                "cards": uids_list_cards(),
-                                "msg": "Cleared" if ok else "Clear failed"
-                            })
-                            try:
-                                cl.close()
-                            except:
-                                pass
+                            if not _check_admin_token(headers, body):
+                                _json_response(cl, {"ok": False, "msg": "Unauthorized: admin token required"}, status="401 Unauthorized")
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
+                            else:
+                                ok = uids_clear_all()
+                                _json_response(cl, {
+                                    "ok": bool(ok),
+                                    "count": len(ALLOWED_UIDS),
+                                    "cards": uids_list_cards(),
+                                    "msg": "Cleared" if ok else "Clear failed"
+                                })
+                                try:
+                                    cl.close()
+                                except:
+                                    pass
 
                         else:
                             _http_send(cl, status="404 Not Found", body="Not found")
